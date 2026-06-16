@@ -1,0 +1,242 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// --------------------------------------------------
+// AUTH & MULTI-TENANCY
+// --------------------------------------------------
+model User {
+  id            String    @id @default(uuid())
+  name          String
+  email         String    @unique
+  password      String
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  memberships   Member[]
+  tasksAssigned Task[]
+}
+
+model Organization {
+  id            String    @id @default(uuid())
+  name          String
+  slug          String?   @unique
+  logo          String?
+  createdAt     DateTime  @default(now())
+  metadata      String?
+  members       Member[]
+  invitations   Invitation[]
+  
+  // Relations to Business Data
+  departments   Department[]
+  employees     Employee[]
+  customers     Customer[]
+  categories    Category[]
+  products      Product[]
+  orders        Order[]
+  expenses      Expense[]
+  auditLogs     AuditLog[]
+  notifications Notification[]
+  tasks         Task[]
+  subscriptions Subscription[]
+}
+
+model Member {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           String       // OWNER, MANAGER, EMPLOYEE
+  createdAt      DateTime     @default(now())
+}
+
+model Invitation {
+  id             String       @id @default(uuid())
+  email          String
+  token          String       @unique
+  role           String       // OWNER, MANAGER, EMPLOYEE
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  expiresAt      DateTime
+  createdAt      DateTime     @default(now())
+}
+
+// --------------------------------------------------
+// PREMIUM SUBSCRIPTION SYSTEM
+// --------------------------------------------------
+model Plan {
+  id             String         @id @default(uuid())
+  name           String         // FREE, PRO, ENTERPRISE
+  price          Float
+  employeeLimit  Int
+  productLimit   Int
+  subscriptions  Subscription[]
+}
+
+model Subscription {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  planId         String
+  plan           Plan         @relation(fields: [planId], references: [id])
+  status         String       // ACTIVE, PAST_DUE, CANCELED
+  currentPeriodEnd DateTime
+  createdAt      DateTime     @default(now())
+}
+
+model Usage {
+  id             String       @id @default(uuid())
+  organizationId String       @unique
+  metric         String       // EMPLOYEES_COUNT, PRODUCTS_COUNT
+  value          Int          @default(0)
+  updatedAt      DateTime     @updatedAt
+}
+
+// --------------------------------------------------
+// BUSINESS MODULES
+// --------------------------------------------------
+model Department {
+  id             String       @id @default(uuid())
+  name           String
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  employees      Employee[]
+}
+
+model Employee {
+  id             String       @id @default(uuid())
+  name           String
+  email          String
+  phone          String?
+  designation    String
+  salary         Float
+  joiningDate    DateTime
+  departmentId   String
+  department     Department   @relation(fields: [departmentId], references: [id])
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  userId         String?      // Map to User for login access
+}
+
+model Task {
+  id             String       @id @default(uuid())
+  title          String
+  description    String?
+  status         String       // TODO, IN_PROGRESS, DONE
+  priority       String       // LOW, MEDIUM, HIGH
+  assignedToId   String?
+  assignedTo     User?        @relation(fields: [assignedToId], references: [id])
+  dueDate        DateTime?
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  createdAt      DateTime     @default(now())
+}
+
+model Customer {
+  id             String       @id @default(uuid())
+  name           String
+  email          String
+  phone          String?
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  orders         Order[]
+}
+
+model Category {
+  id             String       @id @default(uuid())
+  name           String
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  products       Product[]
+}
+
+model Product {
+  id             String       @id @default(uuid())
+  name           String
+  sku            String
+  stock          Int          @default(0)
+  costPrice      Float        
+  sellingPrice   Float
+  profitMargin   Float?       
+  reorderLevel   Int          @default(5) 
+  categoryId     String
+  category       Category     @relation(fields: [categoryId], references: [id])
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  orderItems     OrderItem[]
+}
+
+model Order {
+  id             String       @id @default(uuid())
+  status         String       // PENDING, PROCESSING, COMPLETED, CANCELLED
+  total          Float
+  customerId     String
+  customer       Customer     @relation(fields: [customerId], references: [id])
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  items          OrderItem[]
+  createdAt      DateTime     @default(now())
+}
+
+model OrderItem {
+  id             String       @id @default(uuid())
+  orderId        String
+  order          Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId      String
+  product        Product      @relation(fields: [productId], references: [id])
+  quantity       Int
+  price          Float
+  organizationId String
+}
+
+model Expense {
+  id             String       @id @default(uuid())
+  expenseNumber  String       @unique // e.g., EXP-001
+  category       String       // SALARY, RENT, MARKETING, OPERATIONS, MISC
+  amount         Float
+  description    String?
+  status         String       @default("PENDING") // PENDING, APPROVED, REJECTED
+  approvedById   String?      // User ID of the Manager/Owner who approved
+  attachmentUrl  String?      // Cloudinary URL
+  date           DateTime     @default(now())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+}
+
+// --------------------------------------------------
+// ADVANCED MODULES & ACTIVITY
+// --------------------------------------------------
+model AuditLog {
+  id             String       @id @default(uuid())
+  action         String
+  entity         String
+  entityId       String?
+  userId         String
+  timestamp      DateTime     @default(now())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+}
+
+model Notification {
+  id             String       @id @default(uuid())
+  title          String
+  message        String
+  read           Boolean      @default(false)
+  userId         String       // Targeted User
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  createdAt      DateTime     @default(now())
+}
